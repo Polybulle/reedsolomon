@@ -8,8 +8,8 @@ import CorpsPremier
 degreeBase :: Int
 degreeBase = Parametres.n
 
-prime :: Poly CP
-prime = Poly $ V.fromList $ map fromInteger $ Parametres.irreductible
+irred :: Poly CP
+irred = Poly $ V.fromList $ map fromInteger $ Parametres.irreductible
 
 
 newtype Galois = F (Poly CP)
@@ -26,14 +26,14 @@ chiffres s n = Poly $ V.generate s chiffre_en
 
 instance Num Galois where
     (+) (F x) (F y) = F (x + y)
-    (*) (F x) (F y) = F $ reduce degreeBase $ modP (x * y) prime
+    (*) (F x) (F y) = F $ reduire degreeBase $ modP (x * y) irred
     negate = id
     signum = undefined
     abs = undefined
     fromInteger n = F $ chiffres degreeBase n
 
 instance Fractional Galois where
-    recip (F a) = F u where (_,u,_) = algoEuclide a prime
+    recip (F a) = F u where (_,u,_) = algoEuclide a irred
     fromRational = undefined
 
 instance Enum Galois where

@@ -24,10 +24,12 @@ instance Num CP where
         abs = id
         fromInteger n = CP (n /= 0)
 
+-- le corps Z/2Z
 instance Fractional CP where
         recip = recipCP
         fromRational r = CP (r /= 0)
 
+-- Converstion de et vers les entiers
 instance Enum CP where
         toEnum n = CP (n /= 0)
         fromEnum (CP b) = if b then 1 else 0 

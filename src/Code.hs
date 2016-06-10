@@ -15,12 +15,12 @@ generateur :: Poly Galois
 generateur = foldr (\i p -> p * scinde i) (const 1) [0..(2*t-1)]
         where scinde i = polyAvecCoeffs [- (alpha ^ i), 1]
 
-encode :: Poly Galois -> Poly Galois
-encode p = q - (q `modP` generateur)
+encoder :: Poly Galois -> Poly Galois
+encoder p = q - (q `modP` generateur)
         where q = shift (2*t) p
 
-decode :: Poly Galois -> Poly Galois
-decode (Poly v) = Poly $ V.drop (2*t) v  
+decoder :: Poly Galois -> Poly Galois
+decoder (Poly v) = Poly $ V.drop (2*t) v  
 
 syndromes :: Poly Galois -> Poly Galois
 syndromes p = polyAvecCoeffs $ map (\i -> evalP p (alpha ^ i)) [0..(2*t-1)]
@@ -58,13 +58,13 @@ erreurs localisateur evaluateur pos = zip pos (map magnitude pos)
           x i = (recip alpha) ^ i
           magnitude i = (alpha ^ i) * evalP evaluateur (x i) / evalP p (x i)
 
-polynome_erreurs :: [(Int,Galois)] -> Int ->  Poly Galois
-polynome_erreurs errs n = Poly $ (V.replicate n 0) V.// errs
+polynomeErreurs :: [(Int,Galois)] -> Int ->  Poly Galois
+polynomeErreurs errs n = Poly $ (V.replicate n 0) V.// errs
 
-correction :: Poly Galois -> Poly Galois
-correction p = if l == 0 then p else p - e
+corriger :: Poly Galois -> Poly Galois
+corriger p = if l == 0 then p else p - e
     where n = maxDegree p
           (l,o) = sugiyama (syndromes p)
           pos = positions l n
           errs = erreurs l o pos
-          e = polynome_erreurs errs n
+          e = polynomeErreurs errs n

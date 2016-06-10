@@ -17,7 +17,7 @@ instance Show a => Show (Poly a) where
 
 -- les Polynomes forment un anneau
 instance (Num a, Eq a) => Num (Poly a) where
-        (+) = add
+        (+) = somme
         (*) = multPoly 
         negate p = Poly $ map negate (toVector p)
         abs = undefined
@@ -26,41 +26,52 @@ instance (Num a, Eq a) => Num (Poly a) where
 
 
 
+-- ********* Primitives non mathematiques *************
+
+-- cree un polynome manuellement a partir d'une liste
+-- l'element d'indice i devient le coefficient de degree i
 polyAvecCoeffs :: [a] -> Poly a
 polyAvecCoeffs l = Poly $ fromList l
 
+-- genere un polynome en fonctions des degres de chaque coefficients
 genererPoly :: Int -> (Int -> a) -> Poly a
 genererPoly n coefficients = Poly $ generate n coefficients
 
--- le degre maximal representable
+-- le degre maximal possible pour un polynome
 maxDegree:: Poly a -> Int
 maxDegree p = (length (toVector p)) -1
 
+--  le degree reel d'un polynome
 degree :: (Num a, Eq a) => Poly a -> Int
 degree poly = aux poly (maxDegree poly)
     where aux _ (-1) = -1
           aux p n    = if (coeff n p) /= 0 then n else aux p (n-1)
 
+-- le coefficient de degree n
 coeff :: Num a => Int -> Poly a -> a
 coeff n p = if n > maxDegree p then 0 else (toVector p) ! n
 
+-- le polynome constant de valeur x 
 const :: a -> Poly a
 const x = polyAvecCoeffs [x]
 
 -- tronquer un polynome pour ne garder que les n monomes de degres minimaux
-reduce :: Int -> Poly a -> Poly a
-reduce n (Poly v) = Poly $ force $ slice 0 n v
+reduire :: Int -> Poly a -> Poly a
+reduire n (Poly v) = Poly $ force $ slice 0 n v
 
 
+
+
+-- ********* Primitives algebriques *************
 
 -- Somme de deux polynomes
-add :: Num a => Poly a -> Poly a -> Poly a
-add p q = Poly $ generate (d+1) (\i -> (coeff i p) + (coeff i q))
+somme :: Num a => Poly a -> Poly a -> Poly a
+somme p q = Poly $ generate (d+1) (\i -> (coeff i p) + (coeff i q))
         where d = max (maxDegree p) (maxDegree q)
 
 -- renvoie p*X^k + q
-addWithShift :: Num a => Int -> Poly a -> Poly a -> Poly a
-addWithShift n p q = 
+sommeDecale :: Num a => Int -> Poly a -> Poly a -> Poly a
+sommeDecale n p q = 
     let m = max ((maxDegree p) + n) (maxDegree q)
         calculer_coeff i = if i < n then (coeff i q) else (coeff (i-n) p) + (coeff i q)
     in Poly $ generate (m + 1) calculer_coeff
@@ -81,16 +92,22 @@ multPoly p q = ifoldl step z0 (toVector p)
     where z0 = shift (2 * maxDegree p) (const 0)
           step z i coeff_x = 
                 if coeff_x == 0 then z
-                else addWithShift i (scale coeff_x q) z
+                else sommeDecale i (scale coeff_x q) z
 
+-- valeur d'un polynome en un point
 evalP :: (Eq a, Fractional a) => Poly a -> a -> a
 evalP p x = fst $ foldl' etape (0, 1) (toVector p)
         where etape (val, x_i) coeff_i= (val + coeff_i * x_i, x_i * x)
 
+
+
+
+-- ********* Primitives arithmetiques *************
+
 -- Algorithme classique pour la division euclidenne
 -- d soit etre non nul 
 divEucl :: (Fractional a, Eq a) => Poly a -> Poly a -> (Poly a, Poly a)
-divEucl numerator d = step ((const 0), numerator) (degree numerator)
+divEucl num d = step ((const 0), num) (degree num)
     where step (q, r) deg_r = 
             if deg_r >= degree d 
                 then let t = (coeff deg_r r) / (coeff (degree d) d)
@@ -99,6 +116,7 @@ divEucl numerator d = step ((const 0), numerator) (degree numerator)
                     in step (qq, rr) (deg_r - 1)
                 else (q, r)
 
+-- modulo un certain polynome
 modP :: (Fractional a, Eq a) => Poly a -> Poly a -> Poly a
 modP poly base = snd $ divEucl poly base
 

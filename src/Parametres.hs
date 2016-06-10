@@ -20,8 +20,6 @@ irreductible :: [Integer]
 irreductible = [1,1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1]
 --irreductible = [1,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]
 
-
-
 -- Parametres du code correcteur
 
 -- Pouvoir de correction souhaite
