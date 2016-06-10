@@ -1,0 +1,30 @@
+module CorpsPremier where
+import Data.Int (Int8)
+
+taille :: Int8
+taille = 2
+
+recipCP :: CP -> CP
+recipCP (CP a) = (CP a)
+
+-- Un type chiffre binaire, ie Z/2Z
+newtype CP = CP Int8
+    deriving (Eq, Show)
+
+--instance Show Bin where
+--        show (B True)  = "1"
+--        show (B False) = "0"
+
+-- l'anneau Z/2Z
+instance Num CP where
+        (CP a) + (CP b) = CP (a + b `mod` taille)
+        (CP a) * (CP b) = CP (a * b `mod` taille)
+        negate (CP a)   = CP ((-a)  `mod` taille)
+        signum _ = CP 1
+        abs = id
+        fromInteger n = CP ((fromInteger n) `mod` taille)
+
+instance Fractional CP where
+        recip = recipCP
+        fromRational r = CP (if r /= 0 then 1 else 0)
+

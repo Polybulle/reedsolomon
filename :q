@@ -1,0 +1,1 @@
+RSH.cabal|10 col 1 error| Parse error in expression: example@example Found: author:              Author name here maintainer:          example@example.com > copyright:           2016 Author name here category:            Web build-type:          Simple

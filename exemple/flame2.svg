@@ -1,0 +1,895 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="98" onload="init(evt)" viewBox="0 0 1200 98" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<defs >
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		if (func != null)
+			func = func.replace(/ .*/, "");
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+				return a - b;
+			if (a < b || a > b)
+				return a - b;
+			return matches[b] - matches[a];
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="98.0" fill="url(#background)"  />
+<text text-anchor="middle" x="600.00" y="24" font-size="17" font-family="Verdana" fill="rgb(0,0,0)"  >Flame Graph</text>
+<text text-anchor="" x="10.00" y="81" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="details" > </text>
+<text text-anchor="" x="10.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer" >Reset Zoom</text>
+<text text-anchor="" x="1090.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" >Search</text>
+<text text-anchor="" x="1090.00" y="81" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="matched" > </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            shift                                Poly                   1669       64436    0.3    1.1     1.8    (2 samples, 0.12%)</title><rect x="242.9" y="33" width="1.5" height="15.0" fill="rgb(224,4,5)" rx="2" ry="2" />
+<text text-anchor="" x="245.88" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>      positions.etape                            Code                   1251        4649    0.0    0.0    33.2   (46 samples, 2.85%)</title><rect x="608.0" y="33" width="34.0" height="15.0" fill="rgb(234,18,20)" rx="2" ry="2" />
+<text text-anchor="" x="611.05" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >  ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                degree                           Poly                   1618      179196    0.3    0.0     1.7    (2 samples, 0.12%)</title><rect x="29.6" y="33" width="1.2" height="15.0" fill="rgb(242,109,44)" rx="2" ry="2" />
+<text text-anchor="" x="32.61" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>    correction.(...)                             Code                    336           1    0.0    0.0    66.2   (53 samples, 3.29%)</title><rect x="754.2" y="33" width="38.7" height="15.0" fill="rgb(254,223,4)" rx="2" ry="2" />
+<text text-anchor="" x="757.16" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               coeff                             Poly                   1698     2903220    1.7    0.4     2.3    (1 samples, 0.06%)</title><rect x="53.8" y="33" width="0.5" height="15.0" fill="rgb(228,64,41)" rx="2" ry="2" />
+<text text-anchor="" x="56.75" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         divEucl                                 Poly                   1573        4647    0.0    0.0     7.0    (10 samples, 0.62%)</title><rect x="451.7" y="33" width="6.9" height="15.0" fill="rgb(228,52,49)" rx="2" ry="2" />
+<text text-anchor="" x="454.70" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>degree.aux                  Poly           1.8    (3 samples, 0.19%)</title><rect x="1164.0" y="33" width="2.2" height="15.0" fill="rgb(207,10,25)" rx="2" ry="2" />
+<text text-anchor="" x="1167.03" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           scale                                 Poly                   1568       36603    0.3    0.7     0.5    (1 samples, 0.06%)</title><rect x="316.1" y="33" width="0.5" height="15.0" fill="rgb(219,83,14)" rx="2" ry="2" />
+<text text-anchor="" x="319.12" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            degree                               Poly                    426       37180    0.1    0.0     0.6    (0 samples, 0.00%)</title><rect x="180.8" y="33" width="0.3" height="15.0" fill="rgb(211,153,53)" rx="2" ry="2" />
+<text text-anchor="" x="183.84" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               shift.\                           Poly                    569     3821472    1.4    0.8     5.6    (1 samples, 0.06%)</title><rect x="54.9" y="33" width="1.1" height="15.0" fill="rgb(237,176,40)" rx="2" ry="2" />
+<text text-anchor="" x="57.92" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           add                                   Poly                   1324       13944    0.1    0.2     0.1    (0 samples, 0.00%)</title><rect x="245.1" y="33" width="0.2" height="15.0" fill="rgb(208,227,49)" rx="2" ry="2" />
+<text text-anchor="" x="248.08" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            multPoly.step                        Poly                    395      594880    0.2    0.1    24.6   (24 samples, 1.49%)</title><rect x="214.6" y="33" width="17.8" height="15.0" fill="rgb(237,75,18)" rx="2" ry="2" />
+<text text-anchor="" x="217.64" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>MAIN                                             MAIN                    160           0    0.0    0.0   100.0  (100 samples, 6.20%)</title><rect x="1046.6" y="33" width="73.2" height="15.0" fill="rgb(219,88,21)" rx="2" ry="2" />
+<text text-anchor="" x="1049.60" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >MAIN    ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 coeff                           Poly                    564     8411416   13.1    1.1    15.3    (2 samples, 0.12%)</title><rect x="12.3" y="33" width="1.7" height="15.0" fill="rgb(248,124,15)" rx="2" ry="2" />
+<text text-anchor="" x="15.27" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              negate                             Poly                   1637      179196    1.1    2.1     1.1    (2 samples, 0.12%)</title><rect x="95.5" y="33" width="1.6" height="15.0" fill="rgb(254,21,29)" rx="2" ry="2" />
+<text text-anchor="" x="98.53" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          +                                      Poly                   1323       13944    0.0    0.0     0.1    (0 samples, 0.00%)</title><rect x="344.6" y="33" width="0.2" height="15.0" fill="rgb(245,101,23)" rx="2" ry="2" />
+<text text-anchor="" x="347.58" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                  coeff                          Poly                    540     1563598    0.6    0.2     0.9    (0 samples, 0.00%)</title><rect x="10.3" y="33" width="0.3" height="15.0" fill="rgb(210,198,12)" rx="2" ry="2" />
+<text text-anchor="" x="13.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              add.\                              Poly                   1696     1451610    0.5    2.3     3.0    (3 samples, 0.19%)</title><rect x="76.1" y="33" width="2.2" height="15.0" fill="rgb(251,170,15)" rx="2" ry="2" />
+<text text-anchor="" x="79.14" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            divEucl.step                         Poly                    414      231882    0.1    0.4    36.5   (26 samples, 1.61%)</title><rect x="181.3" y="33" width="18.9" height="15.0" fill="rgb(246,21,28)" rx="2" ry="2" />
+<text text-anchor="" x="184.28" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             shift.\                             Poly                   1702     1296689    0.2    0.2     0.8    (1 samples, 0.06%)</title><rect x="173.7" y="33" width="0.3" height="15.0" fill="rgb(227,211,18)" rx="2" ry="2" />
+<text text-anchor="" x="176.67" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               shift.m                           Poly                    535      194702    0.1    0.2     1.9    (2 samples, 0.12%)</title><rect x="56.5" y="33" width="1.2" height="15.0" fill="rgb(237,155,30)" rx="2" ry="2" />
+<text text-anchor="" x="59.53" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>        modP                                     Poly                   1355        4647    0.0    0.0     7.0    (9 samples, 0.56%)</title><rect x="528.0" y="33" width="7.0" height="15.0" fill="rgb(235,57,49)" rx="2" ry="2" />
+<text text-anchor="" x="531.01" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            negate                               Poly                   1690       64436    0.5    0.8     0.5    (1 samples, 0.06%)</title><rect x="241.8" y="33" width="0.6" height="15.0" fill="rgb(244,142,13)" rx="2" ry="2" />
+<text text-anchor="" x="244.79" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             shift.m                             Poly                   1670       64436    0.0    0.0     0.7    (1 samples, 0.06%)</title><rect x="174.0" y="33" width="0.5" height="15.0" fill="rgb(222,43,54)" rx="2" ry="2" />
+<text text-anchor="" x="177.04" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              +                                  Poly                    523      194702    0.1    0.2    19.4   (14 samples, 0.87%)</title><rect x="58.9" y="33" width="10.4" height="15.0" fill="rgb(246,35,23)" rx="2" ry="2" />
+<text text-anchor="" x="61.95" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            divEucl.step                         Poly                   1290      202436    0.1    0.3    13.3   (20 samples, 1.24%)</title><rect x="200.2" y="33" width="14.4" height="15.0" fill="rgb(250,18,32)" rx="2" ry="2" />
+<text text-anchor="" x="203.23" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             divEucl.step.t                      Poly                    545      194702    0.1    0.2     0.3    (0 samples, 0.00%)</title><rect x="169.1" y="33" width="0.2" height="15.0" fill="rgb(245,87,7)" rx="2" ry="2" />
+<text text-anchor="" x="172.13" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               add                               Poly                    558      194702    1.3    5.0    19.2   (14 samples, 0.87%)</title><rect x="33.1" y="33" width="10.2" height="15.0" fill="rgb(221,155,6)" rx="2" ry="2" />
+<text text-anchor="" x="36.12" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             divEucl.step.rr                     Poly                    522      194702    0.3    0.3    35.9   (25 samples, 1.55%)</title><rect x="136.6" y="33" width="18.5" height="15.0" fill="rgb(240,188,50)" rx="2" ry="2" />
+<text text-anchor="" x="139.57" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               shift.m                           Poly                   1617      179196    0.1    0.1     1.9    (2 samples, 0.12%)</title><rect x="57.7" y="33" width="1.2" height="15.0" fill="rgb(224,18,21)" rx="2" ry="2" />
+<text text-anchor="" x="60.70" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add.\                       Poly           3.3   (13 samples, 0.81%)</title><rect x="1128.9" y="33" width="9.4" height="15.0" fill="rgb(221,103,47)" rx="2" ry="2" />
+<text text-anchor="" x="1131.91" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          +                                      Poly                    449       18592    0.0    0.0     2.6    (1 samples, 0.06%)</title><rect x="343.9" y="33" width="0.7" height="15.0" fill="rgb(225,49,8)" rx="2" ry="2" />
+<text text-anchor="" x="346.92" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              scale                              Poly                   1615      179196    0.9    2.0     1.3    (2 samples, 0.12%)</title><rect x="98.7" y="33" width="1.5" height="15.0" fill="rgb(231,193,5)" rx="2" ry="2" />
+<text text-anchor="" x="101.75" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             addWithShift                        Poly                    405      264216    2.3    7.3    21.3   (21 samples, 1.30%)</title><rect x="112.7" y="33" width="15.7" height="15.0" fill="rgb(227,21,25)" rx="2" ry="2" />
+<text text-anchor="" x="115.72" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                degree                           Poly                    536      194702    0.2    0.0     1.7    (2 samples, 0.12%)</title><rect x="28.5" y="33" width="1.1" height="15.0" fill="rgb(236,72,54)" rx="2" ry="2" />
+<text text-anchor="" x="31.51" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                maxDegree                        Poly                    437    13942031    3.2    2.0     3.2    (2 samples, 0.12%)</title><rect x="30.8" y="33" width="1.4" height="15.0" fill="rgb(254,146,52)" rx="2" ry="2" />
+<text text-anchor="" x="33.78" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 maxDegree                       Poly                   1651     1239723    0.3    0.2     0.3    (0 samples, 0.00%)</title><rect x="17.4" y="33" width="0.1" height="15.0" fill="rgb(208,171,9)" rx="2" ry="2" />
+<text text-anchor="" x="20.39" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             degree.aux                          Poly                   1303      181687    0.0    0.1     0.1    (0 samples, 0.00%)</title><rect x="136.4" y="33" width="0.2" height="15.0" fill="rgb(244,222,41)" rx="2" ry="2" />
+<text text-anchor="" x="139.43" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           multPoly                              Poly                    373       37180    0.2    0.0    26.0   (25 samples, 1.55%)</title><rect x="288.9" y="33" width="18.6" height="15.0" fill="rgb(247,93,21)" rx="2" ry="2" />
+<text text-anchor="" x="291.90" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                add.\                            Poly                   1643     2208454    0.7    3.4     4.4    (5 samples, 0.31%)</title><rect x="24.0" y="33" width="3.4" height="15.0" fill="rgb(251,81,27)" rx="2" ry="2" />
+<text text-anchor="" x="27.05" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          modP                                   Poly                    371       37180    0.0    0.1    37.2   (26 samples, 1.61%)</title><rect x="352.0" y="33" width="19.3" height="15.0" fill="rgb(245,53,34)" rx="2" ry="2" />
+<text text-anchor="" x="354.97" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            multPoly.step                        Poly                   1282      371840    0.2    0.1     7.3   (11 samples, 0.68%)</title><rect x="232.4" y="33" width="8.1" height="15.0" fill="rgb(232,187,9)" rx="2" ry="2" />
+<text text-anchor="" x="235.42" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>   correction                                    Code                    334           1    0.0    0.0    99.7   (100 samples, 6.20%)</title><rect x="827.1" y="33" width="73.0" height="15.0" fill="rgb(206,229,10)" rx="2" ry="2" />
+<text text-anchor="" x="830.10" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   corre..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           addWithShift                          Poly                   1569       36603    0.4    1.2     3.1    (4 samples, 0.25%)</title><rect x="245.3" y="33" width="2.8" height="15.0" fill="rgb(233,45,51)" rx="2" ry="2" />
+<text text-anchor="" x="248.30" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            degree                               Poly                   1300       23240    0.0    0.0     0.1    (0 samples, 0.00%)</title><rect x="181.1" y="33" width="0.2" height="15.0" fill="rgb(205,229,11)" rx="2" ry="2" />
+<text text-anchor="" x="184.13" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>        evalP.etape                              Poly                    360       18592    0.1    0.0    66.1   (53 samples, 3.29%)</title><rect x="465.6" y="33" width="38.7" height="15.0" fill="rgb(232,54,46)" rx="2" ry="2" />
+<text text-anchor="" x="468.60" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                coeff                            Poly                   1675      547316    0.2    0.1     0.3    (0 samples, 0.00%)</title><rect x="28.4" y="33" width="0.1" height="15.0" fill="rgb(250,44,46)" rx="2" ry="2" />
+<text text-anchor="" x="31.36" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              shift                              Poly                   1616      179196    1.0    2.9     4.2    (5 samples, 0.31%)</title><rect x="104.8" y="33" width="3.9" height="15.0" fill="rgb(213,46,37)" rx="2" ry="2" />
+<text text-anchor="" x="107.82" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>addWithShift.calculer_coeff Poly           3.8   (16 samples, 0.99%)</title><rect x="1147.5" y="33" width="11.9" height="15.0" fill="rgb(249,132,34)" rx="2" ry="2" />
+<text text-anchor="" x="1150.49" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            multPoly.z0                          Poly                    375       37180    0.0    0.0     1.2    (1 samples, 0.06%)</title><rect x="240.5" y="33" width="0.8" height="15.0" fill="rgb(216,26,50)" rx="2" ry="2" />
+<text text-anchor="" x="243.54" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              negate                             Poly                    556      194702    5.4    2.3     5.4    (2 samples, 0.12%)</title><rect x="93.8" y="33" width="1.7" height="15.0" fill="rgb(230,161,17)" rx="2" ry="2" />
+<text text-anchor="" x="96.85" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              maxDegree                          Poly                   1595     2470134    0.6    0.3     0.6    (0 samples, 0.00%)</title><rect x="93.6" y="33" width="0.2" height="15.0" fill="rgb(250,97,29)" rx="2" ry="2" />
+<text text-anchor="" x="96.63" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             divEucl.step.rr                     Poly                   1604      179196    0.3    0.3    12.8   (19 samples, 1.18%)</title><rect x="155.1" y="33" width="14.0" height="15.0" fill="rgb(238,83,18)" rx="2" ry="2" />
+<text text-anchor="" x="158.09" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 coeff                           Poly                   1645     4416908    2.4    0.6     3.4    (1 samples, 0.06%)</title><rect x="14.0" y="33" width="0.8" height="15.0" fill="rgb(240,87,19)" rx="2" ry="2" />
+<text text-anchor="" x="16.95" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add                         Poly           3.3   (12 samples, 0.74%)</title><rect x="1119.8" y="33" width="9.1" height="15.0" fill="rgb(245,221,9)" rx="2" ry="2" />
+<text text-anchor="" x="1122.76" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                  maxDegree                      Poly                    565     8411416    2.2    1.2     2.2    (1 samples, 0.06%)</title><rect x="11.0" y="33" width="0.8" height="15.0" fill="rgb(237,121,24)" rx="2" ry="2" />
+<text text-anchor="" x="13.95" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         *                                       Corps                  1258       23240    0.0    0.0    21.8   (32 samples, 1.98%)</title><rect x="427.3" y="33" width="23.3" height="15.0" fill="rgb(243,75,20)" rx="2" ry="2" />
+<text text-anchor="" x="430.33" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  > ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         multPoly                                Poly                   1357        4647    0.0    0.0     3.8    (5 samples, 0.31%)</title><rect x="458.7" y="33" width="3.4" height="15.0" fill="rgb(241,223,5)" rx="2" ry="2" />
+<text text-anchor="" x="461.72" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                  maxDegree                      Poly                   1646     4416908    0.9    0.6     0.9    (1 samples, 0.06%)</title><rect x="11.8" y="33" width="0.5" height="15.0" fill="rgb(230,81,10)" rx="2" ry="2" />
+<text text-anchor="" x="14.83" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>shift.\                     Poly           2.6    (1 samples, 0.06%)</title><rect x="1189.0" y="33" width="1.0" height="15.0" fill="rgb(219,207,32)" rx="2" ry="2" />
+<text text-anchor="" x="1191.98" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 maxDegree                       Poly                    571     2730996    0.6    0.4     0.6    (0 samples, 0.00%)</title><rect x="17.0" y="33" width="0.3" height="15.0" fill="rgb(254,81,39)" rx="2" ry="2" />
+<text text-anchor="" x="20.02" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              +                                  Poly                   1605      179196    0.1    0.2     6.0    (9 samples, 0.56%)</title><rect x="69.3" y="33" width="6.8" height="15.0" fill="rgb(214,1,27)" rx="2" ry="2" />
+<text text-anchor="" x="72.26" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           multPoly                              Poly                   1261       23240    0.1    0.0     8.1   (12 samples, 0.74%)</title><rect x="307.5" y="33" width="8.6" height="15.0" fill="rgb(227,38,42)" rx="2" ry="2" />
+<text text-anchor="" x="310.49" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>    correction.pos                               Code                   1249           1    0.0    0.0    33.2   (46 samples, 2.85%)</title><rect x="793.0" y="33" width="34.0" height="15.0" fill="rgb(237,128,18)" rx="2" ry="2" />
+<text text-anchor="" x="796.01" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >  ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                coeff                            Poly                    570     2730996    3.5    0.4     4.1    (1 samples, 0.06%)</title><rect x="27.6" y="33" width="0.5" height="15.0" fill="rgb(221,32,45)" rx="2" ry="2" />
+<text text-anchor="" x="30.56" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          *                                      Poly                   1260       23240    0.0    0.0     8.1   (12 samples, 0.74%)</title><rect x="335.3" y="33" width="8.6" height="15.0" fill="rgb(236,204,16)" rx="2" ry="2" />
+<text text-anchor="" x="338.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              addWithShift.calculer_coeff        Poly                    434     7942688    2.4   10.3    18.8   (14 samples, 0.87%)</title><rect x="78.3" y="33" width="10.3" height="15.0" fill="rgb(248,145,10)" rx="2" ry="2" />
+<text text-anchor="" x="81.34" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              shift                              Poly                    534      194702    1.2    3.1     8.8    (6 samples, 0.37%)</title><rect x="100.2" y="33" width="4.6" height="15.0" fill="rgb(223,176,1)" rx="2" ry="2" />
+<text text-anchor="" x="103.21" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             shift                               Poly                   1268       23240    0.3    0.5     0.6    (1 samples, 0.06%)</title><rect x="173.2" y="33" width="0.5" height="15.0" fill="rgb(246,93,11)" rx="2" ry="2" />
+<text text-anchor="" x="176.23" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>        *                                        Poly                   1356        4647    0.0    0.0     3.8    (5 samples, 0.31%)</title><rect x="462.2" y="33" width="3.3" height="15.0" fill="rgb(235,99,34)" rx="2" ry="2" />
+<text text-anchor="" x="465.16" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         +                                       Corps                  1322       13944    0.0    0.0     0.1    (0 samples, 0.00%)</title><rect x="451.3" y="33" width="0.2" height="15.0" fill="rgb(248,100,25)" rx="2" ry="2" />
+<text text-anchor="" x="454.26" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            +                                    Poly                   1658       64436    0.1    0.1     3.7    (6 samples, 0.37%)</title><rect x="174.5" y="33" width="4.0" height="15.0" fill="rgb(224,142,46)" rx="2" ry="2" />
+<text text-anchor="" x="177.47" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               shift.\                           Poly                   1649     1747387    0.2    0.3     1.4    (1 samples, 0.06%)</title><rect x="56.0" y="33" width="0.5" height="15.0" fill="rgb(209,26,20)" rx="2" ry="2" />
+<text text-anchor="" x="59.02" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>     bloc                                        Fichiers                364        4648    0.0    0.0     0.3    (0 samples, 0.00%)</title><rect x="681.1" y="33" width="0.1" height="15.0" fill="rgb(210,210,10)" rx="2" ry="2" />
+<text text-anchor="" x="684.07" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             scale                               Poly                   1284      143513    0.8    1.5     1.1    (2 samples, 0.12%)</title><rect x="171.5" y="33" width="1.1" height="15.0" fill="rgb(211,26,34)" rx="2" ry="2" />
+<text text-anchor="" x="174.47" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title> main                                            Main                    321           0    0.0    0.0   100.0  (100 samples, 6.20%)</title><rect x="973.4" y="33" width="73.2" height="15.0" fill="rgb(217,135,2)" rx="2" ry="2" />
+<text text-anchor="" x="976.43" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  > main   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            multPoly.z0                          Poly                   1263       23240    0.0    0.0     0.7    (1 samples, 0.06%)</title><rect x="241.3" y="33" width="0.5" height="15.0" fill="rgb(237,147,38)" rx="2" ry="2" />
+<text text-anchor="" x="244.27" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>scale                       Poly           5.3   (10 samples, 0.62%)</title><rect x="1175.4" y="33" width="7.3" height="15.0" fill="rgb(227,39,18)" rx="2" ry="2" />
+<text text-anchor="" x="1178.37" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               add                               Poly                   1639      179196    1.2    4.6     5.8    (9 samples, 0.56%)</title><rect x="43.3" y="33" width="6.7" height="15.0" fill="rgb(234,21,34)" rx="2" ry="2" />
+<text text-anchor="" x="46.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           divEucl                               Poly                    413       37180    0.1    0.0    37.2   (26 samples, 1.61%)</title><rect x="248.2" y="33" width="19.3" height="15.0" fill="rgb(212,97,50)" rx="2" ry="2" />
+<text text-anchor="" x="251.15" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            add.\                                Poly                    591      297472    0.3    0.5     2.5    (1 samples, 0.06%)</title><rect x="178.5" y="33" width="0.4" height="15.0" fill="rgb(227,208,16)" rx="2" ry="2" />
+<text text-anchor="" x="181.50" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>        evalP.etape                              Poly                   1255       13944    0.1    0.0    21.9   (32 samples, 1.98%)</title><rect x="504.3" y="33" width="23.5" height="15.0" fill="rgb(227,20,4)" rx="2" ry="2" />
+<text text-anchor="" x="507.30" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  > ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             divEucl.step.t                      Poly                   1627      179196    0.1    0.2     0.3    (0 samples, 0.00%)</title><rect x="169.3" y="33" width="0.1" height="15.0" fill="rgb(237,72,24)" rx="2" ry="2" />
+<text text-anchor="" x="172.28" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               coeff                             Poly                    436    13942031   12.2    1.7    15.6    (4 samples, 0.25%)</title><rect x="50.0" y="33" width="2.7" height="15.0" fill="rgb(238,139,1)" rx="2" ry="2" />
+<text text-anchor="" x="53.02" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>coeff                       Poly          42.1    (6 samples, 0.37%)</title><rect x="1159.4" y="33" width="4.6" height="15.0" fill="rgb(224,185,16)" rx="2" ry="2" />
+<text text-anchor="" x="1162.42" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         chiffres                                Corps                  1257        9296    0.1    0.1     0.4    (0 samples, 0.00%)</title><rect x="451.5" y="33" width="0.2" height="15.0" fill="rgb(212,150,13)" rx="2" ry="2" />
+<text text-anchor="" x="454.55" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                add.\                            Poly                    562     4205708    1.7    6.5    17.8    (9 samples, 0.56%)</title><rect x="17.6" y="33" width="6.4" height="15.0" fill="rgb(237,199,36)" rx="2" ry="2" />
+<text text-anchor="" x="20.61" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              degree                             Poly                   1671       64436    0.1    0.0     0.7    (1 samples, 0.06%)</title><rect x="93.2" y="33" width="0.4" height="15.0" fill="rgb(211,113,23)" rx="2" ry="2" />
+<text text-anchor="" x="96.19" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              scale                              Poly                    533      194702    1.0    2.2     2.0    (2 samples, 0.12%)</title><rect x="97.1" y="33" width="1.6" height="15.0" fill="rgb(252,216,54)" rx="2" ry="2" />
+<text text-anchor="" x="100.14" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          *                                      Poly                    372       37180    0.1    0.0    26.0   (25 samples, 1.55%)</title><rect x="316.7" y="33" width="18.6" height="15.0" fill="rgb(252,35,33)" rx="2" ry="2" />
+<text text-anchor="" x="319.71" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             scale                               Poly                    404      264216    1.9    2.8     3.1    (3 samples, 0.19%)</title><rect x="169.4" y="33" width="2.1" height="15.0" fill="rgb(221,34,17)" rx="2" ry="2" />
+<text text-anchor="" x="172.43" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             coeff                               Poly                   1594     2470134    1.4    0.3     2.0    (1 samples, 0.06%)</title><rect x="135.5" y="33" width="0.5" height="15.0" fill="rgb(216,133,7)" rx="2" ry="2" />
+<text text-anchor="" x="138.48" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 degree.aux                      Poly                   1621     1778913    0.6    1.1     1.4    (2 samples, 0.12%)</title><rect x="15.9" y="33" width="1.1" height="15.0" fill="rgb(238,85,44)" rx="2" ry="2" />
+<text text-anchor="" x="18.85" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             addWithShift                        Poly                   1285      143513    1.1    4.0     6.0    (10 samples, 0.62%)</title><rect x="128.4" y="33" width="6.9" height="15.0" fill="rgb(210,119,5)" rx="2" ry="2" />
+<text text-anchor="" x="131.38" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           add                                   Poly                    450       18592    0.1    0.3     2.6    (1 samples, 0.06%)</title><rect x="244.4" y="33" width="0.7" height="15.0" fill="rgb(209,75,49)" rx="2" ry="2" />
+<text text-anchor="" x="247.42" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>     add                                         Poly                   1716        4645    0.0    0.1     0.1    (0 samples, 0.00%)</title><rect x="680.9" y="33" width="0.2" height="15.0" fill="rgb(249,145,23)" rx="2" ry="2" />
+<text text-anchor="" x="683.92" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           divEucl.step.rr                       Poly                   1657       64436    0.1    0.1     6.7    (9 samples, 0.56%)</title><rect x="282.1" y="33" width="6.7" height="15.0" fill="rgb(209,120,24)" rx="2" ry="2" />
+<text text-anchor="" x="285.10" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>  main.resultat                                  Main                    323           1    0.0    0.0    99.7   (100 samples, 6.20%)</title><rect x="900.3" y="33" width="73.0" height="15.0" fill="rgb(227,151,11)" rx="2" ry="2" />
+<text text-anchor="" x="903.27" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >  main.r..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>       *                                         Corps                  1354        4647    0.0    0.0    10.8   (14 samples, 0.87%)</title><rect x="535.0" y="33" width="10.3" height="15.0" fill="rgb(215,172,52)" rx="2" ry="2" />
+<text text-anchor="" x="537.96" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>     syndromes                                   Code                    337           1    0.0    0.0    66.1   (53 samples, 3.29%)</title><rect x="715.3" y="33" width="38.7" height="15.0" fill="rgb(223,224,25)" rx="2" ry="2" />
+<text text-anchor="" x="718.31" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>shift                       Poly           3.2    (9 samples, 0.56%)</title><rect x="1182.7" y="33" width="6.3" height="15.0" fill="rgb(215,14,22)" rx="2" ry="2" />
+<text text-anchor="" x="1185.68" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             add                                 Poly                   1692       64436    0.6    2.3     3.6    (5 samples, 0.31%)</title><rect x="108.8" y="33" width="3.9" height="15.0" fill="rgb(206,217,22)" rx="2" ry="2" />
+<text text-anchor="" x="111.77" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (1,613 samples, 100%)</title><rect x="10.0" y="49" width="1180.0" height="15.0" fill="rgb(232,77,18)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="59.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                 degree.aux                      Poly                    539     1649154    0.6    1.0     1.5    (1 samples, 0.06%)</title><rect x="14.8" y="33" width="1.1" height="15.0" fill="rgb(205,58,18)" rx="2" ry="2" />
+<text text-anchor="" x="17.83" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             coeff                               Poly                    593      594944    1.6    0.1     2.1    (0 samples, 0.00%)</title><rect x="135.3" y="33" width="0.2" height="15.0" fill="rgb(220,130,46)" rx="2" ry="2" />
+<text text-anchor="" x="138.33" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                  coeff                          Poly                   1622     1684812    0.5    0.2     0.8    (0 samples, 0.00%)</title><rect x="10.6" y="33" width="0.4" height="15.0" fill="rgb(225,199,5)" rx="2" ry="2" />
+<text text-anchor="" x="13.59" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            scale                                Poly                   1668       64436    0.3    0.7     0.6    (1 samples, 0.06%)</title><rect x="242.4" y="33" width="0.5" height="15.0" fill="rgb(254,41,2)" rx="2" ry="2" />
+<text text-anchor="" x="245.37" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                   maxDegree                     Poly                    541     1563598    0.3    0.2     0.3    (0 samples, 0.00%)</title><rect x="10.0" y="33" width="0.1" height="15.0" fill="rgb(217,164,6)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          divEucl.step                           Poly                   1574       69083    0.1    0.1     6.9    (9 samples, 0.56%)</title><rect x="345.1" y="33" width="6.9" height="15.0" fill="rgb(249,182,36)" rx="2" ry="2" />
+<text text-anchor="" x="348.09" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               coeff                             Poly                   1310     5334537    2.7    0.6     3.7    (1 samples, 0.06%)</title><rect x="52.7" y="33" width="1.1" height="15.0" fill="rgb(216,206,29)" rx="2" ry="2" />
+<text text-anchor="" x="55.73" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>addWithShift                Poly           3.9   (12 samples, 0.74%)</title><rect x="1138.3" y="33" width="9.2" height="15.0" fill="rgb(236,174,15)" rx="2" ry="2" />
+<text text-anchor="" x="1141.35" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                maxDegree                        Poly                   1699     2903220    0.6    0.4     0.6    (0 samples, 0.00%)</title><rect x="32.8" y="33" width="0.3" height="15.0" fill="rgb(225,145,32)" rx="2" ry="2" />
+<text text-anchor="" x="35.83" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>    +                                            Poly                   1715        4645    0.0    0.0     0.1    (0 samples, 0.00%)</title><rect x="754.0" y="33" width="0.2" height="15.0" fill="rgb(210,183,24)" rx="2" ry="2" />
+<text text-anchor="" x="757.01" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                maxDegree                        Poly                   1311     5334537    0.9    0.8     0.9    (1 samples, 0.06%)</title><rect x="32.2" y="33" width="0.6" height="15.0" fill="rgb(236,95,43)" rx="2" ry="2" />
+<text text-anchor="" x="35.24" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              addWithShift.calculer_coeff        Poly                   1308     2880006    0.9    4.1     4.7    (6 samples, 0.37%)</title><rect x="88.6" y="33" width="4.0" height="15.0" fill="rgb(230,189,48)" rx="2" ry="2" />
+<text text-anchor="" x="91.58" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>     positions                                   Code                   1250           1    0.0    0.0    33.2   (46 samples, 2.85%)</title><rect x="681.3" y="33" width="33.9" height="15.0" fill="rgb(235,194,17)" rx="2" ry="2" />
+<text text-anchor="" x="684.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >  ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>              coeff                              Poly                   1703      876055    0.4    0.1     0.6    (0 samples, 0.00%)</title><rect x="93.0" y="33" width="0.2" height="15.0" fill="rgb(229,171,41)" rx="2" ry="2" />
+<text text-anchor="" x="96.04" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>  ouvrir                                         Fichiers                322           1    0.0    0.0     0.3    (0 samples, 0.00%)</title><rect x="973.3" y="33" width="0.1" height="15.0" fill="rgb(226,74,35)" rx="2" ry="2" />
+<text text-anchor="" x="976.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>       evalP                                     Poly                   1253        4648    0.0    0.0    22.4   (32 samples, 1.98%)</title><rect x="584.2" y="33" width="23.6" height="15.0" fill="rgb(233,96,11)" rx="2" ry="2" />
+<text text-anchor="" x="587.20" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  > ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>            addWithShift.calculer_coeff          Poly                   1592     1372044    0.6    1.9     2.7    (3 samples, 0.19%)</title><rect x="179.0" y="33" width="1.8" height="15.0" fill="rgb(252,106,18)" rx="2" ry="2" />
+<text text-anchor="" x="182.01" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>               degree.aux                        Poly                   1674      577496    0.2    0.3     0.5    (0 samples, 0.00%)</title><rect x="54.3" y="33" width="0.4" height="15.0" fill="rgb(234,142,29)" rx="2" ry="2" />
+<text text-anchor="" x="57.34" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>           divEucl                               Poly                   1289       23240    0.1    0.0    13.5   (20 samples, 1.24%)</title><rect x="267.5" y="33" width="14.5" height="15.0" fill="rgb(228,11,28)" rx="2" ry="2" />
+<text text-anchor="" x="270.47" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                coeff                            Poly                   1650     1239723    0.8    0.2     1.1    (0 samples, 0.00%)</title><rect x="28.1" y="33" width="0.3" height="15.0" fill="rgb(227,222,10)" rx="2" ry="2" />
+<text text-anchor="" x="31.14" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          multPoly.step                          Poly                   1378       74352    0.0    0.0     3.6    (5 samples, 0.31%)</title><rect x="385.8" y="33" width="3.3" height="15.0" fill="rgb(228,141,15)" rx="2" ry="2" />
+<text text-anchor="" x="388.85" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>   ouvrir.p                                      Fichiers                328           1    0.0    0.0     0.3    (0 samples, 0.00%)</title><rect x="900.1" y="33" width="0.2" height="15.0" fill="rgb(248,128,48)" rx="2" ry="2" />
+<text text-anchor="" x="903.12" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>        fromInteger                              Corps                  1256        9296    0.0    0.0     0.4    (0 samples, 0.00%)</title><rect x="527.9" y="33" width="0.1" height="15.0" fill="rgb(230,212,50)" rx="2" ry="2" />
+<text text-anchor="" x="530.86" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>    genererPoly                                  Poly                    333           1    0.0    0.0     0.3    (0 samples, 0.00%)</title><rect x="827.0" y="33" width="0.1" height="15.0" fill="rgb(247,14,37)" rx="2" ry="2" />
+<text text-anchor="" x="829.96" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>      syndromes.\                                Code                    357           4    0.0    0.0    66.1   (53 samples, 3.29%)</title><rect x="642.1" y="33" width="38.7" height="15.0" fill="rgb(212,59,12)" rx="2" ry="2" />
+<text text-anchor="" x="645.07" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         *                                       Corps                   370       37180    0.0    0.0    63.3   (52 samples, 3.22%)</title><rect x="389.4" y="33" width="37.9" height="15.0" fill="rgb(209,74,5)" rx="2" ry="2" />
+<text text-anchor="" x="392.36" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             shift                               Poly                    380       37180    0.4    0.9     1.1    (1 samples, 0.06%)</title><rect x="172.6" y="33" width="0.6" height="15.0" fill="rgb(241,124,30)" rx="2" ry="2" />
+<text text-anchor="" x="175.57" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>maxDegree                   Poly          11.6    (7 samples, 0.43%)</title><rect x="1166.2" y="33" width="5.4" height="15.0" fill="rgb(211,18,0)" rx="2" ry="2" />
+<text text-anchor="" x="1169.22" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>                   maxDegree                     Poly                   1623     1684812    0.3    0.2     0.3    (0 samples, 0.00%)</title><rect x="10.1" y="33" width="0.2" height="15.0" fill="rgb(245,88,8)" rx="2" ry="2" />
+<text text-anchor="" x="13.15" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>       evalP                                     Poly                    358           4    0.0    0.0    66.1   (53 samples, 3.29%)</title><rect x="545.5" y="33" width="38.7" height="15.0" fill="rgb(246,151,34)" rx="2" ry="2" />
+<text text-anchor="" x="548.49" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >   ..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>         +                                       Corps                   448       18592    0.0    0.0     2.6    (1 samples, 0.06%)</title><rect x="450.6" y="33" width="0.7" height="15.0" fill="rgb(218,147,40)" rx="2" ry="2" />
+<text text-anchor="" x="453.60" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>      add.\                                      Poly                   1735       78948    0.0    0.1     0.1    (0 samples, 0.00%)</title><rect x="607.8" y="33" width="0.2" height="15.0" fill="rgb(239,195,14)" rx="2" ry="2" />
+<text text-anchor="" x="610.83" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>             degree.aux                          Poly                    429      461302    0.2    0.3     0.5    (0 samples, 0.00%)</title><rect x="136.1" y="33" width="0.3" height="15.0" fill="rgb(209,27,31)" rx="2" ry="2" />
+<text text-anchor="" x="139.14" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>      versGalois                                 Fichiers                366           0    0.0    0.0     0.3    (0 samples, 0.00%)</title><rect x="680.8" y="33" width="0.1" height="15.0" fill="rgb(227,50,49)" rx="2" ry="2" />
+<text text-anchor="" x="683.77" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>negate                      Poly           7.0    (5 samples, 0.31%)</title><rect x="1171.6" y="33" width="3.8" height="15.0" fill="rgb(212,94,9)" rx="2" ry="2" />
+<text text-anchor="" x="1174.56" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>          modP                                   Poly                   1259       23240    0.1    0.0    13.5   (20 samples, 1.24%)</title><rect x="371.3" y="33" width="14.5" height="15.0" fill="rgb(240,16,7)" rx="2" ry="2" />
+<text text-anchor="" x="374.29" y="43.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+</svg>
