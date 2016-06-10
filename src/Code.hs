@@ -10,7 +10,7 @@ import Corps
 t :: Int
 t = Parametres.t
 
--- le scalaire qui defini le code
+-- le scalaire qui definit le code
 alpha :: Galois
 alpha = fromInteger Parametres.racine_generatrice
 
@@ -29,13 +29,13 @@ decoder (Poly v) = Poly $ V.drop (2*t) v
 syndromes :: Poly Galois -> Poly Galois
 syndromes p = polyAvecCoeffs $ map (\i -> evalP p (alpha ^ i)) [0..(2*t-1)]
 
--- une version ecoutre de l'aglorithme classique
+-- une version ecourtee de l'algorithme classique
 algoEuclideEtendu :: (Fractional a, Eq a) => Poly a -> Poly a 
                 -> (Poly a, Poly a)
 algoEuclideEtendu a b = etape (0, 1, a, b)
     where etape (u, uu, v, vv) = 
             let q = fst (divEucl v vv)
-            in if degree vv < t
+            in if degre vv < t
                 then (uu, vv)
                 else etape (uu, u - q*uu, vv, v - q*vv)
 
@@ -47,7 +47,7 @@ sugiyama syndr = (localisateur, evaluateur)
           monome = shift (2*t) (const 1)
 
 -- renvoie les puissances de alpha^-1 qui annulent Lambda, et qui sont donc
--- les indicies les blocs errones dans le mot a corriger
+-- les indices des blocs errones dans le mot a corriger
 positions :: Poly Galois -> Int -> [Int]
 positions localisateur n  = etape 1 0
     where beta = recip alpha
@@ -62,7 +62,7 @@ derivee :: Poly Galois -> Poly Galois
 derivee p = polyAvecCoeffs $ map derivee_monome [1..(2*t-1)]
     where derivee_monome i = sum $ replicate i (coeff i p)
 
---renvoi les couples (postions, magnitudes) des erreurs dans les positions
+--renvoi les couples (position, magnitude) des erreurs dont les positions
 --sont connues
 erreurs :: Poly Galois -> Poly Galois -> [Int] -> [(Int, Galois)]
 erreurs localisateur evaluateur pos = zip pos (map magnitude pos)
@@ -70,14 +70,14 @@ erreurs localisateur evaluateur pos = zip pos (map magnitude pos)
           x i = (recip alpha) ^ i
           magnitude i = (alpha ^ i) * evalP evaluateur (x i) / evalP p (x i)
 
--- genere le polynome des erreurs à en recevant ces coefficients non-nuls
+-- genere le polynome des erreurs en recevant ses coefficients non-nuls
 polynomeErreurs :: [(Int,Galois)] -> Int ->  Poly Galois
 polynomeErreurs errs n = Poly $ (V.replicate n 0) V.// errs
 
 -- corrige un mot errone du code
 corriger :: Poly Galois -> Poly Galois
 corriger p = if l == 0 then p else p - e
-    where n = maxDegree p
+    where n = maxdegre p
           (l,o) = sugiyama (syndromes p)
           pos = positions l n
           errs = erreurs l o pos

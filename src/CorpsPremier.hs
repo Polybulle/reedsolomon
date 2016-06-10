@@ -1,5 +1,5 @@
 module CorpsPremier where
--- Ce module implémente le corps premier Z/2Z
+-- Ce module implemente le corps premier Z/2Z
 
 import qualified Parametres
 
@@ -31,7 +31,7 @@ instance Fractional CP where
         recip = recipCP
         fromRational r = CP (r /= 0)
 
--- Converstion de et vers les entiers
+-- Conversion de et vers les entiers
 instance Enum CP where
         toEnum n = CP (n /= 0)
         fromEnum (CP b) = if b then 1 else 0 

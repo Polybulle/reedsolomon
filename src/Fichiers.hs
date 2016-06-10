@@ -11,11 +11,11 @@ import Poly
 taille_bloc :: Int
 taille_bloc = quot Parametres.n 8
 
--- traduit une séquence de taille convenable en element du corps
+-- traduit une sequence de taille convenable en element du corps
 versGalois :: B.ByteString -> Galois
 versGalois = toEnum . B.foldr (\w n -> 256*n + fromEnum w) 0
 
--- l'opération reciproque de la precedente
+-- l'operation reciproque de la precedente
 versOctets :: Galois -> B.ByteString
 versOctets x = B.pack $ map toEnum (octets taille_bloc (fromEnum x))
     where octets 0 _ = []
@@ -26,13 +26,13 @@ versOctets x = B.pack $ map toEnum (octets taille_bloc (fromEnum x))
 alignement :: B.ByteString -> Int
 alignement bs = B.length bs `mod` taille_bloc
 
--- nombre de bloc de donnees necessaires pour representer un fichier
+-- nombre de bloc de donnees necessaires pour representer une sequence
 n_blocs :: B.ByteString -> Int
 n_blocs bs = if alignement bs == 0
                 then quot (B.length bs) taille_bloc 
                 else quot (B.length bs) taille_bloc + 1
 
--- le i-eme bloc de donnee du fichier
+-- le i-eme bloc de donnee de la sequence
 bloc :: B.ByteString -> Int -> Galois
 bloc bs i = versGalois segment 
     where segment = if i == n_blocs bs - 1 && alignement bs /= 0
@@ -54,5 +54,5 @@ sauvegarder p align = B.take taille_fichier bs
     where taille_fichier = if align == 0 then B.length bs
                                          else B.length bs - taille_bloc + align
           bs = (B.concat morceaux)
-          morceaux = map (\i -> versOctets $ coeff i p) [0..(maxDegree p)]
+          morceaux = map (\i -> versOctets $ coeff i p) [0..(maxdegre p)]
 

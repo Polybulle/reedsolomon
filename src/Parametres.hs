@@ -1,5 +1,5 @@
 module Parametres where
--- Ce module regroupe les tout les paramètres que l'utilisateur peut
+-- Ce module regroupe tous les paramètres que l'utilisateur peut
 -- modifier dans le programme
 
 -- *** Parametres du corps fini GF(p^n)
@@ -26,6 +26,7 @@ t = 2
 
 -- La representation sous forme d'entier de la racine du polynome
 -- generateur du code souhaite
--- il faut que sous ordre mutliplicatif dans GF(p^n) soit plus grand que 2t
+-- il faut que son ordre mutliplicatif dans GF(p^n) soit plus grand que 2t
+-- et n
 racine_generatrice :: Integer
 racine_generatrice = 3

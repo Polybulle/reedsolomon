@@ -1,17 +1,17 @@
 module Corps where
--- Ce module implémente un corps fini
+-- Ce module implemente un corps fini
 
 import qualified Parametres
 import qualified Data.Vector as V
 import Poly
 import CorpsPremier
 
--- le type "corps fini", implémente comme une classe d'équivalence sur les
--- polynomes à coefficients dans Z/2Z
+-- le type "corps fini", est implemente comme une classe d'équivalence sur les
+-- polynomes a coefficients dans Z/2Z
 newtype Galois = F (Poly CP)
         deriving (Eq)
 
--- Le degre du polynome sur lequelle on base le corps
+-- Le degre du polynome sur lequel on base le corps
 degreeBase :: Int
 degreeBase = Parametres.n
 
