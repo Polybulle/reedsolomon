@@ -1,4 +1,6 @@
 module CorpsPremier where
+-- Ce module implémente le corps premier Z/2Z
+
 import qualified Parametres
 
 taille :: Int

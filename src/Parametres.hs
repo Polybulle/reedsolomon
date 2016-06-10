@@ -1,7 +1,8 @@
 module Parametres where
+-- Ce module regroupe les tout les paramètres que l'utilisateur peut
+-- modifier dans le programme
 
--- Parametres du corps fini GF(p^n)
-
+-- *** Parametres du corps fini GF(p^n)
 -- p doit etre un nombre premier. L'implementation specialisee des corps
 -- premiers utilisee dans cette version ne permet pas de changer p
 p :: Int
@@ -13,15 +14,12 @@ n = 16
 
 -- les coefficients d'un polynome irreductible de degre n a coefficients
 -- dans Z/pZ. Ils doivent etre entres par degre du monome correspondant
--- croissant, et doivent etre les represants positifs de leurs classes les
+-- croissant, et doivent etre les representants positifs de leurs classes les
 -- plus petits.
 irreductible :: [Integer]
---irreductible = [1,1,0,1,1,0,0,0,1]
 irreductible = [1,1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1]
---irreductible = [1,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]
 
--- Parametres du code correcteur
-
+-- *** Parametres du code correcteur
 -- Pouvoir de correction souhaite
 t :: Int
 t = 2

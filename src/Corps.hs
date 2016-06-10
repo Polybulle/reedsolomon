@@ -1,19 +1,23 @@
 module Corps where
+-- Ce module implémente un corps fini
 
 import qualified Parametres
 import qualified Data.Vector as V
 import Poly
 import CorpsPremier
 
+-- le type "corps fini", implémente comme une classe d'équivalence sur les
+-- polynomes à coefficients dans Z/2Z
+newtype Galois = F (Poly CP)
+        deriving (Eq)
+
+-- Le degre du polynome sur lequelle on base le corps
 degreeBase :: Int
 degreeBase = Parametres.n
 
+-- Les membres du corps sont des classes modulo ce polynome
 irred :: Poly CP
 irred = Poly $ V.fromList $ map fromInteger $ Parametres.irreductible
-
-
-newtype Galois = F (Poly CP)
-        deriving (Eq)
 
 instance Show Galois where
         show (F (Poly v)) = V.foldl' (\s n -> show n ++ s) "" v

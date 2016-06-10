@@ -1,4 +1,6 @@
 module Poly where
+-- ce module implémente un type generique representant des polynomes 
+-- sur des corps arbitraires
 
 import Data.Vector hiding ((++), all)
 import Prelude hiding (replicate, length, map, const, foldr)
@@ -23,7 +25,6 @@ instance (Num a, Eq a) => Num (Poly a) where
         abs = undefined
         signum = undefined
         fromInteger = const . fromInteger
-
 
 
 -- ********* Primitives non mathematiques *************
@@ -98,6 +99,7 @@ multPoly p q = ifoldl step z0 (toVector p)
 evalP :: (Eq a, Fractional a) => Poly a -> a -> a
 evalP p x = fst $ foldl' etape (0, 1) (toVector p)
         where etape (val, x_i) coeff_i= (val + coeff_i * x_i, x_i * x)
+
 
 
 
